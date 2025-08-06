@@ -1,16 +1,17 @@
-# 🤖 Akıllı Yorum Asistanı
+# Akıllı Yorum Asistanı
 
-Trendyol ürün yorumlarını çekip, kullanıcı sorularını Gemini AI ile yanıtlayan akıllı bir browser extension.
+Trendyol ve Hepsiburada ürün yorumlarını çekip, kullanıcı sorularını Gemini AI ile yanıtlayan akıllı bir browser extension.
 
-## 🚀 Özellikler
+## Özellikler
 
-- **Otomatik Yorum Çekme**: Trendyol ürün sayfalarından yorumları otomatik çeker
+- **Otomatik Yorum Çekme**: Trendyol ve Hepsiburada ürün sayfalarından yorumları otomatik çeker
 - **RAG (Retrieval-Augmented Generation)**: Yorumları analiz edip akıllı yanıtlar üretir
 - **Browser Extension**: Chrome extension ile kolay kullanım
 - **Çoklu Veri Kaynağı**: API + Web scraping desteği
 - **Gerçek Zamanlı Analiz**: Anında soru-cevap
+- **Çoklu Site Desteği**: Trendyol ve Hepsiburada entegrasyonu
 
-## 📋 Gereksinimler
+## Gereksinimler
 
 ### Backend
 - Python 3.8+
@@ -35,7 +36,7 @@ express>=4.18.2
 cors>=2.8.5
 ```
 
-## 🛠️ Kurulum
+## Kurulum
 
 ### 1. Backend Kurulumu
 
@@ -74,7 +75,7 @@ echo "GEMINI_API_KEY=your_actual_api_key_here" > .env
 3. "Load unpacked" butonuna tıklayın
 4. `frontend-extension` klasörünü seçin
 
-## 🚀 Kullanım
+## Kullanım
 
 ### 1. Backend'i Başlatın
 
@@ -87,7 +88,7 @@ Server `http://localhost:8080` adresinde çalışacak.
 
 ### 2. Extension'ı Kullanın
 
-1. Trendyol'da bir ürün sayfasına gidin
+1. Trendyol veya Hepsiburada'da bir ürün sayfasına gidin
 2. Extension ikonuna tıklayın
 3. İstediğiniz soruyu yazın
 4. "Yorumları Çek ve Sor" butonuna tıklayın
@@ -97,127 +98,55 @@ Server `http://localhost:8080` adresinde çalışacak.
 ```bash
 # Yorumları çek
 python ai_core/1_fetch_reviews.py --url "https://www.trendyol.com/urun-url"
-
-# RAG index oluştur
-python ai_core/2_create_rag_index.py
-
-# Soru sor
-python ai_core/3_query_rag.py --question "Bu ürün kaliteli mi?"
+python ai_core/1_fetch_reviews.py --url "https://www.hepsiburada.com/urun-url"
 ```
 
-## 📁 Proje Yapısı
+## Desteklenen Siteler
+
+- **Trendyol**: API + Selenium fallback ile yorum çekme
+- **Hepsiburada**: Selenium ile yorum çekme
+
+## API Endpoints
+
+- `POST /api/v1/query` - Tekil sorgu
+- `POST /api/v1/query/batch` - Toplu sorgu
+- `GET /api/v1/query/suggestions` - Soru önerileri
+- `POST /api/v1/validate-url` - URL doğrulama
+- `GET /api/v1/supported-sites` - Desteklenen siteler
+- `GET /health` - Sağlık kontrolü
+
+## Proje Yapısı
 
 ```
 akilli-yorum-asistani/
 ├── backend/
 │   ├── ai_core/
-│   │   ├── 1_fetch_reviews.py      # Yorum çekme
-│   │   ├── 2_create_rag_index.py   # RAG index oluşturma
-│   │   ├── 3_query_rag.py          # AI sorgulama
-│   │   ├── 3_query_rag_test.py     # Test modu
-│   │   ├── reviews.json            # Çekilen yorumlar
-│   │   ├── chunks.json             # Metin parçaları
-│   │   └── index.faiss             # FAISS index
-│   ├── server.js                   # Express server
-│   ├── package.json
-│   ├── requirements.txt
-│   └── test_system.py              # Test scripti
-└── frontend-extension/
-    ├── manifest.json               # Extension manifest
-    ├── popup.html                  # UI
-    └── popup.js                    # Frontend logic
+│   │   ├── 1_fetch_reviews.py          # Ana yorum çekme modülü
+│   │   ├── hepsiburada_scraper.py      # Hepsiburada scraper
+│   │   ├── 2_create_rag_index.py       # RAG index oluşturma
+│   │   ├── 3_query_rag.py              # RAG sorgulama
+│   │   └── requirements.txt            # Python bağımlılıkları
+│   ├── server.js                       # Express.js API sunucusu
+│   └── package.json                    # Node.js bağımlılıkları
+├── frontend-extension/
+│   ├── popup.html                      # Extension arayüzü
+│   ├── popup.js                        # Extension mantığı
+│   └── manifest.json                   # Extension manifest
+└── README.md                           # Bu dosya
 ```
 
-## 🔧 API Endpoints
-
-### POST /fetch-reviews
-Yorumları çeker ve RAG index'ini günceller.
-
-**Request:**
-```json
-{
-  "product_url": "https://www.trendyol.com/urun-url"
-}
-```
-
-### POST /analyze
-Mevcut yorumlardan soru yanıtlar.
-
-**Request:**
-```json
-{
-  "question": "Bu ürün kaliteli mi?"
-}
-```
-
-### POST /fetch-and-analyze
-Yorumları çeker ve soruyu yanıtlar (tek seferde).
-
-**Request:**
-```json
-{
-  "question": "Bu ürün kaliteli mi?",
-  "product_url": "https://www.trendyol.com/urun-url"
-}
-```
-
-## 🧠 RAG Sistemi
-
-1. **Yorum Çekme**: Trendyol API'si veya Selenium ile
-2. **Metin Bölme**: Yorumları anlamlı parçalara bölme
-3. **Embedding**: Sentence transformers ile vektörleştirme
-4. **Indexleme**: FAISS ile hızlı arama
-5. **Retrieval**: En alakalı parçaları bulma
-6. **Generation**: Gemini ile yanıt üretme
-
-## 🐛 Sorun Giderme
-
-### Yorumlar Çekilmiyor
-- Trendyol URL'sinin doğru olduğundan emin olun
-- Selenium Chrome driver'ının yüklü olduğunu kontrol edin
-- Network bağlantınızı kontrol edin
-
-### AI Yanıt Vermiyor
-- Gemini API anahtarınızı kontrol edin
-- `.env` dosyasının doğru konumda olduğunu kontrol edin
-- API quota limitinizi kontrol edin
-
-### Extension Çalışmıyor
-- Backend'in çalıştığından emin olun (`localhost:8080`)
-- Extension'ı yeniden yükleyin
-- Chrome console'da hata mesajlarını kontrol edin
-
-## 📝 Örnek Kullanım
-
-```
-Kullanıcı: "Bu ürün kaliteli mi?"
-AI: "Yorumlara göre bu ürün genellikle kaliteli olarak değerlendiriliyor. 
-5 yıldızlı yorumlarda 'çok kaliteli', 'harika ürün' gibi ifadeler kullanılmış. 
-Ancak bazı kullanıcılar boyut konusunda sıkıntı yaşamış. 
-Genel olarak fiyatına değer bir ürün olduğu belirtiliyor."
-
-Kullanıcı: "Hangi renk daha popüler?"
-AI: "Yorumlarda en çok bahsedilen renkler mavi ve siyah. 
-Mavi renk için 'çok güzel', 'harika renk' gibi olumlu yorumlar var. 
-Siyah renk de kullanıcılar tarafından beğenilmiş."
-```
-
-## 🤝 Katkıda Bulunma
+## Katkıda Bulunma
 
 1. Fork yapın
 2. Feature branch oluşturun (`git checkout -b feature/amazing-feature`)
 3. Commit yapın (`git commit -m 'Add amazing feature'`)
-4. Push yapın (`git push origin feature/amazing-feature`)
-5. Pull Request açın
+4. Branch'e push yapın (`git push origin feature/amazing-feature`)
+5. Pull Request oluşturun
 
-## 📄 Lisans
+## Lisans
 
 Bu proje MIT lisansı altında lisanslanmıştır.
 
-## 🙏 Teşekkürler
+## İletişim
 
-- Google Gemini AI
-- Trendyol API
-- Sentence Transformers
-- FAISS
-- Chrome Extension API 
+Proje hakkında sorularınız için issue açabilirsiniz. 

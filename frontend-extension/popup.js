@@ -1,9 +1,35 @@
+// Akilli Yorum Asistani - Chrome Extension Frontend
+// Bu dosya Chrome extension'ının popup arayüzünü yönetir
+// Frontend: HTML + CSS + JavaScript
+// Backend: Express.js API ile iletişim
+//
+// Özellikler:
+// - Trendyol ve Hepsiburada site algılama
+// - Gerçek zamanlı URL kontrolü
+// - Modern UI/UX tasarımı
+// - API entegrasyonu
+// - Hata yönetimi
+//
+// Kullanım:
+// Chrome extension olarak yüklenir
+// Desteklenen sitelerde otomatik çalışır
+//
+// Gereksinimler:
+// - Chrome Extension API
+// - Fetch API
+// - Modern JavaScript (ES6+)
+//
+// Lisans: MIT
+// Yazar: Akıllı Yorum Asistanı Projesi
+
 // UI elementleri
 const questionInput = document.getElementById('question-input');
 const askBtn = document.getElementById('ask-btn');
 const statusDiv = document.getElementById('status');
 const resultsContainer = document.getElementById('results-container');
 const resultsContent = document.getElementById('results-content');
+const siteInfoDiv = document.getElementById('site-info');
+const siteNameSpan = document.getElementById('site-name');
 
 // Butonu devre dışı bırak
 function setButtonDisabled(disabled) {
@@ -90,9 +116,12 @@ function showLoadingAnimation() {
 // API çağrısı yap
 async function makeApiCall(endpoint, data) {
     try {
-    const response = await fetch(`http://localhost:8080/${endpoint}`, {
+    const response = await fetch(`http://localhost:8080/api/v1/${endpoint}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
         body: JSON.stringify(data),
         // Timeout ayarı - 10 dakika
         signal: AbortSignal.timeout(600000)
@@ -100,13 +129,17 @@ async function makeApiCall(endpoint, data) {
     
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.error || `HTTP ${response.status}`);
+      const errorMessage = errorData.error?.message || errorData.error || `HTTP ${response.status}`;
+      throw new Error(errorMessage);
     }
     
     return await response.json();
   } catch (error) {
     if (error.name === 'TimeoutError') {
       throw new Error('İşlem çok uzun sürdü. Lütfen tekrar deneyin.');
+    }
+    if (error.message.includes('[object Object]')) {
+      throw new Error('API yanıtı işlenemedi. Lütfen tekrar deneyin.');
     }
     throw new Error(`API hatası: ${error.message}`);
   }
@@ -119,6 +152,53 @@ async function getCurrentTabUrl() {
     return tabs[0]?.url || '';
   } catch (error) {
     throw new Error('Sekme URL\'si alınamadı');
+  }
+}
+
+// Site algılama fonksiyonu
+function detectSiteFromUrl(url) {
+  if (!url) return null;
+  
+  const urlLower = url.toLowerCase();
+  
+  if (urlLower.includes('trendyol.com')) {
+    return {
+      site: 'trendyol',
+      name: 'Trendyol',
+      icon: 'trendyol'
+    };
+  } else if (urlLower.includes('hepsiburada.com')) {
+    return {
+      site: 'hepsiburada',
+      name: 'Hepsiburada',
+      icon: 'hepsiburada'
+    };
+  }
+  
+  return null;
+}
+
+// Site bilgisini göster
+function showSiteInfo(siteInfo) {
+  if (siteInfo) {
+    siteNameSpan.textContent = `Şu sitedesiniz: ${siteInfo.name}`;
+    const siteIcon = siteInfoDiv.querySelector('.site-icon');
+    siteIcon.className = `site-icon ${siteInfo.icon}`;
+    siteInfoDiv.style.display = 'block';
+  } else {
+    siteInfoDiv.style.display = 'none';
+  }
+}
+
+// Sayfa yüklendiğinde site bilgisini kontrol et
+async function checkCurrentSite() {
+  try {
+    const currentUrl = await getCurrentTabUrl();
+    const siteInfo = detectSiteFromUrl(currentUrl);
+    showSiteInfo(siteInfo);
+  } catch (error) {
+    console.log('Site bilgisi alınamadı:', error);
+    siteInfoDiv.style.display = 'none';
   }
 }
 
@@ -136,17 +216,33 @@ async function askAndAnalyze() {
     const loadingInterval = showLoadingAnimation();
     
     const productUrl = await getCurrentTabUrl();
-    if (!productUrl.includes('trendyol.com')) {
-      throw new Error('Bu sayfa Trendyol ürün sayfası değil. Lütfen bir Trendyol ürün sayfasında olun.');
+    
+    // URL doğrulama
+    const validationResponse = await fetch('http://localhost:8080/api/v1/validate-url', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({ url: productUrl })
+    });
+    
+    const validationData = await validationResponse.json();
+    
+    if (!validationData.success || !validationData.validation.valid) {
+      throw new Error(validationData.validation.error || 'Geçersiz ürün sayfası');
     }
     
-    const data = await makeApiCall('fetch-and-analyze', { 
+    const siteName = validationData.site_info.name;
+    showStatus(`✅ ${siteName} ürün sayfası algılandı. Yorumlar çekiliyor...`, 'info');
+    
+    const data = await makeApiCall('query', { 
       question, 
       product_url: productUrl 
     });
     
     clearInterval(loadingInterval);
-    showStatus('✅ Analiz başarıyla tamamlandı!', 'success');
+    showStatus(`✅ ${siteName} yorumları analiz edildi!`, 'success');
     
     // Sadece "Genel Değerlendirme" ve "Test Bilgisi" kısımlarını çıkar
     let generalEvaluation = '';
@@ -241,11 +337,16 @@ askBtn.addEventListener('mouseleave', () => {
 // Sayfa yüklendiğinde durumu kontrol et
 document.addEventListener('DOMContentLoaded', async () => {
   try {
+    // Site bilgisini kontrol et ve göster
+    await checkCurrentSite();
+    
     const url = await getCurrentTabUrl();
-    if (url.includes('trendyol.com')) {
-      showStatus('✅ Trendyol sayfasında bulunuyorsunuz. Soru sorun, yorumları otomatik çekip analiz edelim.', 'success');
+    const siteInfo = detectSiteFromUrl(url);
+    
+    if (siteInfo) {
+      showStatus(`✅ ${siteInfo.name} sayfasında bulunuyorsunuz. Soru sorun, yorumları otomatik çekip analiz edelim.`, 'success');
     } else {
-      showStatus('⚠️ Trendyol ürün sayfasında değilsiniz.', 'error');
+      showStatus('⚠️ Desteklenen bir e-ticaret sitesinde değilsiniz. (Trendyol veya Hepsiburada)', 'warning');
     }
   } catch (error) {
     showStatus('❌ Sayfa durumu kontrol edilemedi.', 'error');

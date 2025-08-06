@@ -79,7 +79,7 @@ class RAGService(IRAGService):
             if not os.path.exists(chunks_path):
                 raise FileNotFoundError(f"Chunks dosyası bulunamadı: {chunks_path}")
             
-            # Dosyaları yükle
+            # Dosyaları yükle (her zaman yeniden yükle)
             self._index = faiss.read_index(index_path)
             with open(chunks_path, 'r', encoding='utf-8') as f:
                 self._chunks = json.load(f)
@@ -217,9 +217,9 @@ class RAGService(IRAGService):
         try:
             Logger.info(f"RAG sorgusu başlatılıyor: {question}")
             
-            # Index ve chunks'ları yükle
-            if not self._loaded:
-                self.load_index_and_chunks()
+            # Index ve chunks'ları her zaman yeniden yükle (güncel veriler için)
+            self._loaded = False  # Force reload
+            self.load_index_and_chunks()
             
             # Yorumları formatla
             all_reviews = []

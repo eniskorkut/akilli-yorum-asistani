@@ -1,3 +1,27 @@
+# Akilli Yorum Asistani - Yorum Çekme Modülü
+# Bu dosya Trendyol ve Hepsiburada ürün sayfalarından yorumları çeker
+# Web scraping ve API kullanarak yorumları toplar
+# Hackathon Projesi - AI Destekli Yorum Analizi
+# 
+# Özellikler:
+# - Trendyol API entegrasyonu
+# - Hepsiburada Selenium scraper
+# - Otomatik site algılama
+# - Çoklu veri kaynağı desteği
+# 
+# Kullanım:
+# python 1_fetch_reviews.py --url "https://www.trendyol.com/urun-url" --max-reviews 50
+# python 1_fetch_reviews.py --url "https://www.hepsiburada.com/urun-url" --max-reviews 50
+#
+# Gereksinimler:
+# - requests
+# - selenium
+# - beautifulsoup4
+# - webdriver-manager
+#
+# Lisans: MIT
+# Yazar: Akıllı Yorum Asistanı Projesi
+
 import requests
 import json
 import argparse
@@ -14,10 +38,19 @@ from webdriver_manager.chrome import ChromeDriverManager
 import bs4
 from bs4 import BeautifulSoup
 
-# YENİ API YAKLAŞIMI
-# URL'den alınan product_slug ve merchant_id'yi kullanarak sayfa sayfa yorum çeker.
+# Hepsiburada scraper modülünü import et
+try:
+    from hepsiburada_scraper import fetch_reviews_hepsiburada
+except ImportError:
+    # Eğer hepsiburada_scraper modülü yoksa, bu fonksiyonu burada tanımlayacağız
+    pass
+
+# TRENDYOL API YAKLAŞIMI
+# URL'den alınan product_slug ve merchant_id'yi kullanarak sayfa sayfa yorum çeker
+# Trendyol'un resmi API'sini kullanarak hızlı ve güvenilir veri çekimi
 API_URL = "https://apigw.trendyol.com/discovery-web-socialgw-service/reviews/{product_slug}/yorumlar?merchantId={merchantId}&page={page}&culture=tr-TR&storefrontId=1"
 
+# HTTP istekleri için header bilgileri - Gerçek tarayıcı gibi davranmak için
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
@@ -26,9 +59,35 @@ HEADERS = {
     "Origin": "https://www.trendyol.com"
 }
 
+def detect_site_from_url(url):
+    """
+    URL'den hangi site olduğunu algılar
+    """
+    if not url:
+        return None
+    
+    url_lower = url.lower()
+    
+    if 'trendyol.com' in url_lower:
+        return {
+            'site': 'trendyol',
+            'name': 'Trendyol',
+            'scraper_script': '1_fetch_reviews.py'
+        }
+    elif 'hepsiburada.com' in url_lower:
+        return {
+            'site': 'hepsiburada',
+            'name': 'Hepsiburada',
+            'scraper_script': '1_fetch_reviews_hepsiburada.py'
+        }
+    
+    return None
+
 def extract_product_info_from_url(url):
     """
     Trendyol URL'sinden ürün slug'ını ve merchant ID'yi güvenilir şekilde çıkarır.
+    Bu fonksiyon URL parsing yaparak API çağrıları için gerekli parametreleri elde eder.
+    
     Örnek URL: https://www.trendyol.com/harmana/hindiba-kahvesi-p-288620006?boutiqueId=61&merchantId=936059
     """
     try:
@@ -41,14 +100,14 @@ def extract_product_info_from_url(url):
             print("URL'den ürün slug'ı çıkarılamadı.")
             return None, None
             
-        # merchantId: URL'nin query parametrelerinden alınır.
+        # merchantId: URL'nin query parametrelerinden alınır
         query_params = parse_qs(parsed_url.query)
         merchant_id = query_params.get('merchantId', [None])[0]
         
         if not merchant_id:
             print("URL'den merchantId bulunamadı. Sayfa kaynağından alınmaya çalışılacak.")
-            # Eğer URL'de merchantId yoksa, bazen ana ürün sayfasında bulunur.
-            # Bu durumu şimdilik None olarak geçiyoruz, API denemesi başarısız olursa Selenium devreye girer.
+            # Eğer URL'de merchantId yoksa, bazen ana ürün sayfasında bulunur
+            # Bu durumu şimdilik None olarak geçiyoruz, API denemesi başarısız olursa Selenium devreye girer
             pass
 
         print(f"Bulunan slug: {product_slug}, merchant_id: {merchant_id}")
@@ -59,26 +118,33 @@ def extract_product_info_from_url(url):
         return None, None
 
 def fetch_reviews_api(product_slug, merchant_id, max_pages=10):
-    """API kullanarak yorumları çeker (YENİ YÖNTEM)"""
+    """
+    Trendyol API kullanarak yorumları çeker (YENİ YÖNTEM)
+    Bu fonksiyon resmi API'yi kullanarak hızlı ve güvenilir veri çekimi yapar
+    """
     reviews = []
     page = 0
     total_pages = 1
     
+    # API isteği için merchantId gerekli
     if not merchant_id:
         print("API isteği için merchantId gerekli, bu adım atlanıyor.")
         return []
 
     print(f"API ile yorumlar çekiliyor: {product_slug} (Merchant: {merchant_id})")
     
+    # Sayfa sayfa yorumları çek
     while page < total_pages and page < max_pages:
         try:
             # Sayfa numarasını URL'ye ekle
             url = API_URL.format(product_slug=product_slug, merchantId=merchant_id, page=page)
             print(f"API URL: {url}")
             
+            # HTTP session oluştur ve header'ları ayarla
             session = requests.Session()
             session.headers.update(HEADERS)
             
+            # API'ye istek gönder
             resp = session.get(url, timeout=30)
             
             if resp.status_code != 200:
@@ -99,29 +165,45 @@ def fetch_reviews_api(product_slug, merchant_id, max_pages=10):
                 # Toplam sayfa sayısını yanıttan al
                 total_pages = min(review_data.get('totalPages', 1), max_pages)
                 print(f"Toplam {total_pages} sayfa bulundu.")
-            
+
+            # Yorumları çıkar
+            page_reviews = review_data.get('reviews', [])
+            if not page_reviews:
+                print(f"Sayfa {page} için yorum bulunamadı.")
+                break
+
             # Yorumları işle
-            for review in review_data.get('content', []):
-                if review.get('comment'):  # Boş yorumları atla
-                    reviews.append({
-                        'comment': review.get('comment'),
-                        'rate': review.get('rate'),
-                        'user': review.get('userFullName', 'Anonim'),
-                        'date': review.get('commentDateISOtype'),
-                        'source': 'api_v2' # Kaynağı yeni API olarak işaretle
-                    })
+            for review in page_reviews:
+                if len(reviews) >= 100:  # Maksimum yorum sayısı
+                    break
                     
-            print(f"{page + 1}/{total_pages} sayfa çekildi. (Toplam {len(reviews)} yorum)")
+                comment = review.get('comment', '').strip()
+                if comment:
+                    reviews.append({
+                        'comment': comment,
+                        'rating': review.get('rating', 0),
+                        'user': review.get('userFullName', 'Anonim'),
+                        'date': review.get('commentDate', ''),
+                        'source': 'trendyol_api'
+                    })
+
+            print(f"Sayfa {page + 1}: {len(page_reviews)} yorum çekildi. Toplam: {len(reviews)}")
             page += 1
-            time.sleep(1)  # Rate limiting için bekle
+            
+            # Rate limiting - API'yi çok hızlı çağırmamak için
+            time.sleep(0.5)
             
         except requests.exceptions.RequestException as e:
-            print(f"Network hatası sayfa {page}: {e}")
+            print(f"API isteği hatası (sayfa {page}): {e}")
+            break
+        except json.JSONDecodeError as e:
+            print(f"JSON parse hatası (sayfa {page}): {e}")
             break
         except Exception as e:
-            print(f"Genel hata sayfa {page}: {e}")
+            print(f"Beklenmeyen hata (sayfa {page}): {e}")
             break
-    
+
+    print(f"API ile toplam {len(reviews)} yorum çekildi.")
     return reviews
 
 
@@ -438,50 +520,102 @@ def fetch_reviews_selenium(url, max_reviews=100):
 
 
 def fetch_reviews(url=None, max_pages=10, max_reviews=100):
-    """Ana yorum çekme fonksiyonu"""
+    """
+    Ana yorum çekme fonksiyonu - Hem Trendyol hem de Hepsiburada desteği
+    """
     reviews = []
     
-    # 1. Adım: URL'den gerekli bilgileri çıkar
     if not url:
         print("URL parametresi gerekli.")
         return []
     
-    product_slug, merchant_id = extract_product_info_from_url(url)
-    
-    if not product_slug:
-        print("URL'den ürün bilgisi alınamadı.")
+    # URL'den hangi site olduğunu algıla
+    site_info = detect_site_from_url(url)
+    if not site_info:
+        print("Desteklenmeyen site. Sadece Trendyol ve Hepsiburada desteklenir.")
         return []
+    
+    print(f"Algılanan site: {site_info['name']}")
+    
+    if site_info['site'] == 'trendyol':
+        # Trendyol için yorum çekme
+        product_slug, merchant_id = extract_product_info_from_url(url)
+        
+        if not product_slug:
+            print("URL'den ürün bilgisi alınamadı.")
+            return []
 
-    # 2. Adım: Selenium ile yorumları çek (API yerine)
-    print("Selenium ile yorumlar çekiliyor...")
-    reviews = fetch_reviews_selenium(url, max_reviews)
-
+        # Önce API ile dene
+        if merchant_id:
+            print("Trendyol API ile yorumlar çekiliyor...")
+            reviews = fetch_reviews_api(product_slug, merchant_id, max_pages)
+        
+        # API başarısız olursa veya yeterli yorum yoksa Selenium kullan
+        if not reviews or len(reviews) < 10:
+            print("API yeterli yorum sağlamadı, Selenium ile devam ediliyor...")
+            selenium_reviews = fetch_reviews_selenium(url, max_reviews)
+            reviews.extend(selenium_reviews)
+    
+    elif site_info['site'] == 'hepsiburada':
+        # Hepsiburada için yorum çekme
+        print("Hepsiburada yorumları çekiliyor...")
+        try:
+            from hepsiburada_scraper import fetch_reviews_hepsiburada
+            reviews = fetch_reviews_hepsiburada(url, max_reviews)
+        except ImportError:
+            print("Hepsiburada scraper modülü bulunamadı, Selenium ile devam ediliyor...")
+            reviews = fetch_reviews_selenium(url, max_reviews)
+    
     # Sonuçları kaydet
     if reviews:
-        # Tekrar eden yorumları son bir kez temizle
-        unique_reviews = list({r['comment']: r for r in reviews}.values())
+        # Tekrar eden yorumları temizle
+        unique_reviews = []
+        seen_comments = set()
+        
+        for review in reviews:
+            comment = review.get('comment', '').strip()
+            if comment and comment not in seen_comments and len(comment) > 10:
+                unique_reviews.append(review)
+                seen_comments.add(comment)
+        
         print(f"\nToplam {len(unique_reviews)} adet benzersiz yorum bulundu ve kaydediliyor.")
+        
+        # Yorumları JSON dosyasına kaydet
         with open('reviews.json', 'w', encoding='utf-8') as f:
             json.dump(unique_reviews, f, ensure_ascii=False, indent=2)
+        
         print("Yorumlar 'reviews.json' dosyasına başarıyla kaydedildi.")
+        return unique_reviews
     else:
         print("\nHiç yorum çekilemedi.")
-    
-    return reviews
+        return []
 
 def main():
-    parser = argparse.ArgumentParser(description='Trendyol ürün yorumlarını çeker')
-    parser.add_argument('--url', required=True, help='Trendyol ürün URL\'si')
+    parser = argparse.ArgumentParser(description='Trendyol ve Hepsiburada ürün yorumlarını çeker')
+    parser.add_argument('--url', required=True, help='Trendyol veya Hepsiburada ürün URL\'si')
     parser.add_argument('--max-pages', type=int, default=10, help='API için maksimum sayfa sayısı')
-    parser.add_argument('--max-reviews', type=int, default=100, help='Selenium için maksimum yorum sayısı')
+    parser.add_argument('--max-reviews', type=int, default=100, help='Maksimum yorum sayısı')
     
     args = parser.parse_args()
     
-    fetch_reviews(
-        url=args.url,
-        max_pages=args.max_pages,
-        max_reviews=args.max_reviews
-    )
+    # URL'den site algılama
+    site_info = detect_site_from_url(args.url)
+    if not site_info:
+        print("Hata: Desteklenmeyen site. Sadece Trendyol ve Hepsiburada desteklenir.")
+        return
+    
+    print(f"Site algılandı: {site_info['name']}")
+    print(f"URL: {args.url}")
+    print(f"Maksimum yorum sayısı: {args.max_reviews}")
+    
+    # Yorumları çek
+    reviews = fetch_reviews(args.url, args.max_pages, args.max_reviews)
+    
+    if reviews:
+        print(f"\n✅ Başarılı! Toplam {len(reviews)} yorum çekildi.")
+        print(f"📁 Yorumlar 'reviews.json' dosyasına kaydedildi.")
+    else:
+        print("\n❌ Hiç yorum çekilemedi.")
 
 if __name__ == "__main__":
     main()

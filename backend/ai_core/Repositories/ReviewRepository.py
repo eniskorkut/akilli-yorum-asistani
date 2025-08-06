@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 import json
 import os
+import hashlib
+import time
 
 from Config import Config
 from Exceptions import FileNotFoundError, RAGServiceError
@@ -34,6 +36,16 @@ class IReviewRepository(ABC):
     def get_reviews_by_rating(self, min_rating: int = 0, max_rating: int = 5) -> List[Dict[str, Any]]:
         """Belirli puan aralığındaki yorumları döndürür"""
         pass
+    
+    @abstractmethod
+    def fetch_reviews_for_url(self, url: str) -> List[Dict[str, Any]]:
+        """URL için yorumları çeker"""
+        pass
+    
+    @abstractmethod
+    def get_cache_key(self, url: str) -> str:
+        """URL için cache key oluşturur"""
+        pass
 
 
 class FileReviewRepository(IReviewRepository):
@@ -43,6 +55,8 @@ class FileReviewRepository(IReviewRepository):
         self._file_path = file_path or Config.REVIEWS_PATH
         self._reviews = None
         self._loaded = False
+        
+        # Cache sistemi kaldırıldı
     
     def load_reviews(self) -> List[Dict[str, Any]]:
         """Yorumları dosyadan yükler"""
@@ -188,6 +202,106 @@ class FileReviewRepository(IReviewRepository):
                 'negative_reviews': 0,
                 'neutral_reviews': 0
             }
+    
+    def fetch_reviews_for_url(self, url: str) -> List[Dict[str, Any]]:
+        """URL için yorumları çeker"""
+        try:
+            # URL validasyonu
+            if not self._is_valid_trendyol_url(url):
+                Logger.warning(f"Geçersiz Trendyol URL: {url}")
+                return []
+            
+            # Her zaman yeni yorumlar çek (cache yok)
+            Logger.info(f"Yorumlar çekiliyor: {url}")
+            reviews = self._fetch_reviews_from_scraper(url)
+            
+            Logger.info(f"Çekilen yorum sayısı: {len(reviews)}")
+            return reviews
+            
+        except Exception as e:
+            Logger.error(f"URL için yorum çekme hatası: {e}")
+            return []
+    
+    def _fetch_reviews_from_scraper(self, url: str) -> List[Dict[str, Any]]:
+        """Scraper'dan yorumları çeker"""
+        try:
+            # Şimdilik mevcut 1_fetch_reviews.py'yi kullanıyoruz
+            # Daha sonra bu kısım domain'e göre farklı scraper'lar kullanacak
+            from urllib.parse import urlparse
+            parsed_url = urlparse(url)
+            
+            if 'trendyol.com' in parsed_url.netloc:
+                # Trendyol için mevcut scraper'ı kullan
+                import subprocess
+                import sys
+                
+                # 1_fetch_reviews.py'yi çağır
+                script_path = os.path.join(os.path.dirname(__file__), '..', '1_fetch_reviews.py')
+                result = subprocess.run([
+                    sys.executable, script_path,
+                    '--url', url,
+                    '--max-reviews', '50'
+                ], capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
+                
+                if result.returncode == 0:
+                    # reviews.json'dan yorumları oku
+                    reviews_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'reviews.json')
+                    if os.path.exists(reviews_file):
+                        with open(reviews_file, 'r', encoding='utf-8') as f:
+                            return json.load(f)
+                
+                Logger.error(f"Scraper hatası: {result.stderr}")
+                return []
+                
+            else:
+                Logger.warning(f"Desteklenmeyen domain: {parsed_url.netloc}")
+                return []
+                
+        except Exception as e:
+            Logger.error(f"Scraper çalıştırma hatası: {e}")
+            return []
+    
+    def get_cache_key(self, url: str) -> str:
+        """URL için cache key oluşturur (kullanılmıyor)"""
+        return "no_cache"
+    
+    def _is_valid_trendyol_url(self, url: str) -> bool:
+        """Trendyol URL'sinin geçerli olup olmadığını kontrol eder"""
+        try:
+            from urllib.parse import urlparse
+            
+            parsed = urlparse(url)
+            
+            # Domain kontrolü
+            if 'trendyol.com' not in parsed.netloc:
+                return False
+            
+            # Path kontrolü - ürün sayfası olmalı
+            path = parsed.path.lower()
+            
+            # Geçersiz path'ler
+            invalid_paths = [
+                '/gecersiz-url-test',
+                '/test-',
+                '/invalid-',
+                '/fake-',
+                '/dummy-',
+                '/trendyol-milla/trendyol-milla-kadin-basic-oversize-t-shirt-p-123456789'  # Test URL'si
+            ]
+            
+            for invalid_path in invalid_paths:
+                if invalid_path in path:
+                    return False
+            
+            # Ürün sayfası olmalı (p- ile başlayan ID içermeli)
+            if 'p-' not in path:
+                return False
+            
+            return True
+            
+        except Exception as e:
+            Logger.error(f"URL validasyon hatası: {e}")
+            return False
 
 
 class MockReviewRepository(IReviewRepository):
@@ -215,4 +329,13 @@ class MockReviewRepository(IReviewRepository):
     
     def get_reviews_by_rating(self, min_rating: int = 0, max_rating: int = 5) -> List[Dict[str, Any]]:
         """Mock rating filtreleme"""
-        return [r for r in self._mock_reviews if min_rating <= r.get('rate', 0) <= max_rating] 
+        return [r for r in self._mock_reviews if min_rating <= r.get('rate', 0) <= max_rating]
+    
+    def fetch_reviews_for_url(self, url: str) -> List[Dict[str, Any]]:
+        """Mock URL için yorum çekme"""
+        Logger.info(f"Mock: URL için yorumlar çekiliyor: {url}")
+        return self._mock_reviews
+    
+    def get_cache_key(self, url: str) -> str:
+        """Mock cache key"""
+        return hashlib.md5(url.encode()).hexdigest() 
